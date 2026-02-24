@@ -8,6 +8,8 @@
 // --- MSPv2 Function IDs ---
 #define MSP2_SENSOR_OPTIC_FLOW  0x1F02
 #define MSP2_SENSOR_RANGEFINDER 0x1F01
+
+// Les valeurs initiales (tu pourras les modifier en direct via ton interface web)
 #define FLOW_GYRO_MULT_X 1.6f  // Ajustement pour le Roll
 #define FLOW_GYRO_MULT_Y 1.6f  // Ajustement pour le Pitch
 
@@ -51,8 +53,8 @@ volatile float _flow_angle_yaw    = 0.0f;
 volatile float _flow_lidar_dist   = 0.0f;
 
 // --- Variables volatiles pour compensation gyroscopique ---
-volatile float _flow_gyro_pitch   = 0.0f;  // deg/s (legacy, plus utilisé pour tilt comp)
-volatile float _flow_gyro_roll    = 0.0f;  // deg/s (legacy, plus utilisé pour tilt comp)
+volatile float _flow_gyro_pitch   = 0.0f;  // deg/s (instantané pour le gyro-gating)
+volatile float _flow_gyro_roll    = 0.0f;  // deg/s (instantané pour le gyro-gating)
 
 // --- Accumulateurs gyro intégrés à 250 Hz dans imu.cpp ---
 extern volatile float flow_accum_pitch;  // degrés accumulés
@@ -230,8 +232,6 @@ static void flow_task(void *parameter) {
                             float lidar_dist = filtered_lidar_for_flow;
 
                             // === COMPENSATION TILT (accumulateurs gyro intégrés à 250 Hz) ===
-                            // On lit les angles accumulés depuis le dernier paquet OF
-                            // puis on remet les accumulateurs à zéro immédiatement.
                             portENTER_CRITICAL(&flow_mux);
                             float accum_roll_deg  = flow_accum_roll;
                             float accum_pitch_deg = flow_accum_pitch;
@@ -244,43 +244,44 @@ static void flow_task(void *parameter) {
                             float gyro_comp_y = accum_pitch_deg * 0.01745329f * flow_scale_runtime * flow_gyro_mult_y_rt;
 
                             // Compensation : delta capteur + rotation propre du drone
-                            // (Si la dérive s'aggrave au lieu de s'annuler, il faudra peut-être inverser le signe ici en -)
                             float corrected_delta_x = (float)delta_x + gyro_comp_x;
                             float corrected_delta_y = (float)delta_y + gyro_comp_y;
 
                             // Convertir en vitesse body frame (cm/s)
-                            // FLOW_SIGN_X/Y permettent d'inverser selon le montage
-                            // (axes swappés : delta_y → vel_x, delta_x → vel_y)
                             float vel_x_body = FLOW_SIGN_X * (corrected_delta_y * lidar_dist) / (dt_s * flow_scale_runtime);
                             float vel_y_body = FLOW_SIGN_Y * (corrected_delta_x * lidar_dist) / (dt_s * flow_scale_runtime);
+                            
                             // Rejet de spike : vitesse > 200 cm/s physiquement impossible
                             if (fabsf(vel_x_body) > 200.0f) vel_x_body = 0.0f;
                             if (fabsf(vel_y_body) > 200.0f) vel_y_body = 0.0f;
 
-                            // Rotation body → world frame (yaw)
-                            /*float yaw_rad = yaw_deg * 0.01745329f;
-                            float cos_yaw = cosf(yaw_rad);
-                            float sin_yaw = sinf(yaw_rad);
-                            float vel_x_world = vel_x_body * cos_yaw - vel_y_body * sin_yaw;
-                            float vel_y_world = vel_x_body * sin_yaw + vel_y_body * cos_yaw;
-                            */
-                            // Filtre passe-bas
+                            // Filtre passe-bas basique
                             filt_vel_x = filt_vel_x + ALPHA * (vel_x_body - filt_vel_x);
                             filt_vel_y = filt_vel_y + ALPHA * (vel_y_body - filt_vel_y);
 
-                            // Intégration de position (seulement si qualité suffisante)
-                            /*if (quality >= FLOW_QUALITY_MIN) {
-                                pos_x_int += filt_vel_x * dt_s;
-                                pos_y_int += filt_vel_y * dt_s;
-                            }
-                            */
-                            // Intégration de position (seulement si qualité suffisante)
-                            if (quality >= FLOW_QUALITY_MIN) {
-                                // Deadband vélocité : ne pas intégrer les petites vitesses résiduelles
-                                float int_vx = (fabsf(filt_vel_x) > 2.0f) ? filt_vel_x : 0.0f;
-                                float int_vy = (fabsf(filt_vel_y) > 2.0f) ? filt_vel_y : 0.0f;
-                                pos_x_int += int_vx * dt_s;
-                                pos_y_int += int_vy * dt_s;
+                            // === NOUVELLE LOGIQUE : GYRO-GATING (Masquage dynamique) ===
+                            // _flow_gyro_roll et pitch sont les vitesses de rotation instantanées (deg/s)
+                            float abs_gyro_roll = fabsf(_flow_gyro_roll);
+                            float abs_gyro_pitch = fabsf(_flow_gyro_pitch);
+                            
+                            // Seuil : Si le drone tourne à plus de 15 degrés par seconde
+                            const float GYRO_MASK_THRESHOLD = 15.0f; 
+
+                            if (abs_gyro_roll > GYRO_MASK_THRESHOLD || abs_gyro_pitch > GYRO_MASK_THRESHOLD) {
+                                // 1. Le drone bascule : on tue la vélocité pour empêcher le D du PID de s'affoler
+                                filt_vel_x = 0.0f;
+                                filt_vel_y = 0.0f;
+                                
+                                // 2. On n'intègre pas la position. pos_x_int et pos_y_int restent figées.
+                            } else {
+                                // Le drone est stable (surplace ou translation douce) : Intégration normale
+                                if (quality >= FLOW_QUALITY_MIN) {
+                                    // Deadband vélocité : ne pas intégrer les petites vitesses résiduelles
+                                    float int_vx = (fabsf(filt_vel_x) > 2.0f) ? filt_vel_x : 0.0f;
+                                    float int_vy = (fabsf(filt_vel_y) > 2.0f) ? filt_vel_y : 0.0f;
+                                    pos_x_int += int_vx * dt_s;
+                                    pos_y_int += int_vy * dt_s;
+                                }
                             }
 
                             // Publication thread-safe
@@ -312,8 +313,9 @@ void optical_flow_set_scale(float scale) {
 }
 
 void optical_flow_set_gyro_mult(float mx, float my) {
-    if (mx > 0.0f) flow_gyro_mult_x_rt = mx;
-    if (my > 0.0f) flow_gyro_mult_y_rt = my;
+    // MODIFICATION ICI: Suppression du blocage "if > 0", on accepte les valeurs 0 et négatives pour le tuning
+    flow_gyro_mult_x_rt = mx;
+    flow_gyro_mult_y_rt = my;
 }
 
 void optical_flow_init() {
