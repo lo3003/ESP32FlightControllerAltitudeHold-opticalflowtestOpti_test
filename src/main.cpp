@@ -228,7 +228,6 @@ void loop() {
                     if (!pos_test_mode) {
                         optical_flow_reset_position();
                         drone.pos_est_x = 0; drone.pos_est_y = 0;
-                        drone.pos_setpoint_x = 0; drone.pos_setpoint_y = 0;
                         drone.pid_output_pos_roll = 0; drone.pid_output_pos_pitch = 0;
                         pid_reset_position();
                         pos_test_mode = true;
@@ -284,7 +283,6 @@ void loop() {
                     if (!pos_test_mode) {
                         optical_flow_reset_position();
                         drone.pos_est_x = 0; drone.pos_est_y = 0;
-                        drone.pos_setpoint_x = 0; drone.pos_setpoint_y = 0;
                         drone.pid_output_pos_roll = 0; drone.pid_output_pos_pitch = 0;
                         pid_reset_position();
                         pos_test_mode = true;
@@ -340,7 +338,6 @@ void loop() {
                     // Init Position Hold
                     optical_flow_reset_position();
                     drone.pos_est_x = 0; drone.pos_est_y = 0;
-                    drone.pos_setpoint_x = 0; drone.pos_setpoint_y = 0;
                     drone.pid_output_pos_roll = 0; drone.pid_output_pos_pitch = 0;
                     pid_reset_position();
                     Serial.printf("[POS] Engage AUTO_POS @ %.0f cm\n", drone.lidar_distance);
@@ -371,7 +368,6 @@ void loop() {
                     drone.current_mode = MODE_POS_HOLD;
                     optical_flow_reset_position();
                     drone.pos_est_x = 0; drone.pos_est_y = 0;
-                    drone.pos_setpoint_x = 0; drone.pos_setpoint_y = 0;
                     drone.pid_output_pos_roll = 0; drone.pid_output_pos_pitch = 0;
                     pid_reset_position();
                     Serial.println(F("[POS] Engage POS_HOLD (manual throttle)"));
@@ -440,7 +436,6 @@ void loop() {
                     drone.current_mode = MODE_AUTO_POS;
                     optical_flow_reset_position();
                     drone.pos_est_x = 0; drone.pos_est_y = 0;
-                    drone.pos_setpoint_x = 0; drone.pos_setpoint_y = 0;
                     drone.pid_output_pos_roll = 0; drone.pid_output_pos_pitch = 0;
                     pid_reset_position();
                     Serial.println(F("[POS] ALT_HOLD → AUTO_POS"));

@@ -367,9 +367,6 @@ void pid_compute_position(DroneState *drone) {
                         (abs(drone->channel_2 - 1500) > POS_STICK_DEADBAND);
 
     if (stick_active) {
-        // Le pilote controle -> le setpoint suit la position estimee courante
-        drone->pos_setpoint_x = drone->pos_est_x;
-        drone->pos_setpoint_y = drone->pos_est_y;
         pid_i_mem_pos_x = 0.0f;
         pid_i_mem_pos_y = 0.0f;
         drone->pid_output_pos_pitch = 0.0f;
@@ -378,10 +375,7 @@ void pid_compute_position(DroneState *drone) {
     }
 
     // Qualité insuffisante → zéro les sorties, pas de correction
-    // On recale le setpoint sur la position actuelle pour éviter un snap violent au retour
     if (drone->flow_quality < FLOW_QUALITY_MIN) {
-        drone->pos_setpoint_x = drone->pos_est_x;
-        drone->pos_setpoint_y = drone->pos_est_y;
         pid_i_mem_pos_x = 0.0f;
         pid_i_mem_pos_y = 0.0f;
         drone->pid_output_pos_pitch = 0.0f;
@@ -389,41 +383,33 @@ void pid_compute_position(DroneState *drone) {
         return;
     }
 
-    // Position et vélocité directement depuis l'optical flow (sans EKF)
-    // pos_est_x/y est rempli par optical_flow_update()
-    // flow_velocity_x/y est la vélocité world filtrée
+    // --- Velocity Hold : cible = 0 cm/s ---
+    float vx = drone->flow_velocity_x;
+    float vy = drone->flow_velocity_y;
 
-    // Erreur de position
-    float err_x = drone->pos_setpoint_x - drone->pos_est_x;
-    float err_y = drone->pos_setpoint_y - drone->pos_est_y;
+    // Deadband : ignorer les vitesses < 1 cm/s (bruit capteur)
+    if (fabsf(vx) < 1.0f) vx = 0.0f;
+    if (fabsf(vy) < 1.0f) vy = 0.0f;
 
-    // Deadband : ignorer les erreurs < 2 cm (bruit)
-    if (fabsf(err_x) < 2.0f) err_x = 0.0f;
-    if (fabsf(err_y) < 2.0f) err_y = 0.0f;
+    // Erreur de vitesse (cible = 0)
+    float err_vx = 0.0f - vx;
+    float err_vy = 0.0f - vy;
 
     // Terme P
-    float px = drone->p_pos * err_x;
-    float py = drone->p_pos * err_y;
+    float px = drone->p_pos * err_vx;
+    float py = drone->p_pos * err_vy;
 
     // Terme I (avec anti-windup)
-    pid_i_mem_pos_x += drone->i_pos * err_x;
-    pid_i_mem_pos_y += drone->i_pos * err_y;
+    pid_i_mem_pos_x += drone->i_pos * err_vx;
+    pid_i_mem_pos_y += drone->i_pos * err_vy;
     if (pid_i_mem_pos_x > PID_MAX_POS_ANGLE) pid_i_mem_pos_x = PID_MAX_POS_ANGLE;
     else if (pid_i_mem_pos_x < -PID_MAX_POS_ANGLE) pid_i_mem_pos_x = -PID_MAX_POS_ANGLE;
     if (pid_i_mem_pos_y > PID_MAX_POS_ANGLE) pid_i_mem_pos_y = PID_MAX_POS_ANGLE;
     else if (pid_i_mem_pos_y < -PID_MAX_POS_ANGLE) pid_i_mem_pos_y = -PID_MAX_POS_ANGLE;
 
-    // Terme D (D on measurement — utilise flow_velocity directement)
-    float vx = drone->flow_velocity_x;
-    float vy = drone->flow_velocity_y;
-    if (fabsf(vx) < 1.0f) vx = 0.0f;
-    if (fabsf(vy) < 1.0f) vy = 0.0f;
-    float dx = -drone->d_pos * vx;
-    float dy = -drone->d_pos * vy;
-
-    // Somme + saturation
-    float out_x = px + pid_i_mem_pos_x + dx;
-    float out_y = py + pid_i_mem_pos_y + dy;
+    // Somme + saturation (pas de terme D pour du velocity hold)
+    float out_x = px + pid_i_mem_pos_x;
+    float out_y = py + pid_i_mem_pos_y;
 
     if (out_x > PID_MAX_POS_ANGLE) out_x = PID_MAX_POS_ANGLE;
     else if (out_x < -PID_MAX_POS_ANGLE) out_x = -PID_MAX_POS_ANGLE;
