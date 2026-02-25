@@ -36,7 +36,7 @@ static int16_t temperature;
 static float gyro_roll_filt = 0.0f;
 static float gyro_pitch_filt = 0.0f;
 static float gyro_yaw_filt = 0.0f;
-#define GYRO_PT1_COEFF 0.85f
+#define GYRO_PT1_COEFF 0.7f
 
 // --- Filtres de Kalman pour Roll et Pitch ---
 static Kalman kalman_roll;
@@ -82,7 +82,7 @@ void imu_init() {
     Wire.beginTransmission(MPU_ADDR); Wire.write(0x6B); Wire.write(0x00); Wire.endTransmission();
     Wire.beginTransmission(MPU_ADDR); Wire.write(0x1B); Wire.write(0x08); Wire.endTransmission();
     Wire.beginTransmission(MPU_ADDR); Wire.write(0x1C); Wire.write(0x10); Wire.endTransmission();
-    Wire.beginTransmission(MPU_ADDR); Wire.write(0x1A); Wire.write(0x03); Wire.endTransmission();
+    Wire.beginTransmission(MPU_ADDR); Wire.write(0x1A); Wire.write(0x02); Wire.endTransmission();
 
     Serial.println(F(""));
     Serial.println(F("IMU: Calibration Gyro MPU6050 - NE PAS BOUGER LE DRONE!"));
